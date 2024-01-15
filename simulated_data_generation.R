@@ -1,0 +1,46 @@
+library(BDgraph)
+library(fda)
+
+seed = 22111996
+p <- 40
+
+# Simulate a block graph
+set.seed(seed)
+adj <- graph.sim( p = p, graph = "cluster", class=3 , vis=T)
+adj
+
+# Simulate the precision matrix given the graph
+set.seed(seed)
+K_true <- rgwish(n = 1, adj = adj)
+
+# Simulate the beta coefficients given the precision matrix
+n <- 300
+set.seed(seed)
+beta_true <- rmvnorm(n=n, mean = rep(0, length=p), sigma=solve(K_true))
+
+# Build the phi matrix
+r <- 200
+x <- seq(0, 1, length.out=r)
+basis <- create.bspline.basis(rangeval=range(x), nbasis=40, norder=3) 
+BaseMat <- eval.basis(x, basis) # matrix r x p 
+
+# Simulate the functional data 
+tau_eps = 100
+cov_y <- tau_eps * diag(1, r, r)
+y_hat_true = matrix(nrow = n, ncol = r)
+
+for (i in c(1:n)){
+  mean_y <- as.vector(BaseMat%*%beta_true[i, ])
+  y_hat_true[i, ] <- rmvnorm(n=1, mean=mean_y, sigma=cov_y)
+}
+
+x11()
+plot(x, y_hat_true[1, ], type='l')
+
+# Save data in a cvs
+BaseMat_path = "C:/Users/Asus/OneDrive - Politecnico di Milano/Università/Magistrale/SECONDO ANNO/Bayesian Statistics/Project/Codici/BaseMat.csv"
+y_hat_true_path = "C:/Users/Asus/OneDrive - Politecnico di Milano/Università/Magistrale/SECONDO ANNO/Bayesian Statistics/Project/Codici/y_hat_true.csv"
+
+write.csv(BaseMat, file = BaseMat_path, row.names = FALSE)
+write.csv(y_hat_true, file = y_hat_true_path, row.names = FALSE)
+
