@@ -8,7 +8,6 @@ date: "2024-01-13"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
 # Load libraries
 
 ```{r}
@@ -42,6 +41,7 @@ library(tidyverse)
 ```
 
 # Simulated data
+
 ```{r}
 # Import simulated data
 BaseMat = as.matrix(read_csv('BaseMat.csv'))
@@ -67,7 +67,8 @@ Sdata = sum(diag(y_hat_true%*%t(y_hat_true))) # inefficient calculation ((2b + S
 Update_Beta <- TRUE
 Update_Mu <- TRUE
 Update_Tau <- TRUE
-a_tau_eps <- b_tau_eps <- 2
+a_tau_eps <- 2000
+b_tau_eps <- 2
 sigma_mu = 100
 
 # Define variance of the Beta
@@ -118,7 +119,7 @@ graph_start = NULL
 # Gibbs sampler
 
 ```{r}
-for(s in 2:4) {
+for(s in 2:10000) {
 
   fit = UpdateParamsGSL( chains$Beta[[s-1]], chains$mu[[s-1]], chains$tau_eps[[s-1]], 
                          chains$K[[s-1]], tbase_base, tbase_data, Sdata,   
@@ -225,6 +226,123 @@ ACutils::ACheatmap(
   use_x11_device = F,
   horizontal = F,
   main = "Estimated Precision matrix",
+  center_value = NULL,
+  col.upper = "black",
+  col.center = "grey50",
+  col.lower = "white"
+)
+
+```
+
+```{r}
+# plot smoothed curves
+
+# mean Beta
+sum_Beta <- matrix(0, p, n)
+
+for(i in (burn_in+1):niter){
+  sum_Beta <- sum_Beta + chains$Beta[[1]]
+}
+mean_Beta <- sum_Beta/(niter-burn_in)
+
+
+data_post <- BaseMat %*% mean_Beta
+
+x <- seq(0, 1, length.out=r)
+basis <- create.bspline.basis(rangeval=range(x), nbasis=40, norder=3) 
+
+data.fd <- Data2fd(y = data_post, argvals = x, basisobj = basis)
+plot.fd(data.fd, main="smoothed curves")
+
+```
+
+```{r}
+# plot final Beta matrix
+
+ACutils::ACheatmap(
+  chains$Beta[[niter]],  
+  use_x11_device = F,
+  horizontal = F,
+  main = "Estimated Beta matrix",
+  center_value = NULL,
+  col.upper = "black",
+  col.center = "grey50",
+  col.lower = "white"
+)
+
+```
+
+```{r}
+# traceplot tau_eps
+library(coda)
+library(lattice)
+
+tau_plot <- as.vector(chains$tau_eps)
+tau_plot <- tau_plot[(burn_in+1):10000]
+plot(ts(mcmc(tau_plot)))
+```
+
+```{r}
+# traceplot mu
+mu_plot <- matrix(0, niter, p)
+
+for(i in 1:niter){
+  mu_plot[i, ] <- chains$mu[[i]]
+}
+
+plot(ts(mcmc(mu_plot[, 1:10])))
+plot(ts(mcmc(mu_plot[, 11:20])))
+plot(ts(mcmc(mu_plot[, 21:30])))
+plot(ts(mcmc(mu_plot[, 31:40])))
+```
+
+```{r}
+# plot plinks matrix
+
+last_plinks = chains$G[[niter]]
+
+ACutils::ACheatmap(
+  last_plinks,
+  use_x11_device = F,
+  horizontal = F,
+  main = "Estimated plinks matrix",
+  center_value = NULL,
+  col.upper = "black",
+  col.center = "grey50",
+  col.lower = "white"
+)
+
+
+# Criterion 1 to select the threshold (should not work very well) and assign final graph
+threshold = 0.5
+G_est <- matrix(0,p,p)
+G_est[which(last_plinks>threshold)] = 1
+
+
+ACutils::ACheatmap(
+  G_est,
+  use_x11_device = F,
+  horizontal = F,
+  main = "Estimated Graph",
+  center_value = NULL,
+  col.upper = "black",
+  col.center = "grey50",
+  col.lower = "white"
+)
+
+
+#Criterion 2 to select the threshold
+bfdr_select = BFDR_selection(last_plinks, tol = seq(0.1, 1, by = 0.001))
+
+# Inspect the threshold and assign final graph
+bfdr_select$best_treshold
+G_est = bfdr_select$best_truncated_graph
+
+ACutils::ACheatmap(
+  G_est,
+  use_x11_device = F,
+  horizontal = F,
+  main = "Estimated Graph",
   center_value = NULL,
   col.upper = "black",
   col.center = "grey50",
