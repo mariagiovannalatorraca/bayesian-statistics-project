@@ -1,13 +1,13 @@
 library(BDgraph)
 library(fda)
 
+# Set the seed
 seed = 22111996
-p <- 40
-
 
 # Simulate a block graph
 set.seed(seed)
-adj <- graph.sim( p = p, graph = "cluster", class=3 , vis=T)
+p <- 40
+adj <- graph.sim(p = p, graph = "cluster", class = 3 , vis = T)
 adj
 
 # Simulate the precision matrix given the graph
@@ -15,13 +15,12 @@ set.seed(seed)
 K_true <- rgwish(n = 1, adj = adj)
 
 # Simulate the beta coefficients given the precision matrix
-n <- 300
 set.seed(seed)
-
+n <- 300
 x_mu <- seq(0, 1, length.out=p)
-mu_true = dgamma(x= x_mu, shape = 2, rate = 10) 
+mu_true = dgamma(x = x_mu, shape = 2, rate = 10) 
 plot(x_mu, mu_true, type='l')
-beta_true <- rmvnorm(n=n, mean =  mu_true , sigma=solve(K_true))
+beta_true <- rmvnorm(n = n, mean =  mu_true , sigma=solve(K_true))
 
 # Build the phi matrix
 r <- 200
@@ -43,9 +42,8 @@ x11()
 plot(x, y_hat_true[1, ], type='l')
 
 # Save data in a cvs
-
-BaseMat_path = "C:/Users/volor/Desktop/Bayesian Statistics/Project/R/BaseMat.csv"
-y_hat_true_path = "C:/Users/volor/Desktop/Bayesian Statistics/Project/R/y_hat_true.csv"
+BaseMat_path = "BaseMat.csv"
+y_hat_true_path = "y_hat_true.csv"
 
 write.csv(BaseMat, file = BaseMat_path, row.names = FALSE)
 write.csv(y_hat_true, file = y_hat_true_path, row.names = FALSE)

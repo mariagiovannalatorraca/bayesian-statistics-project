@@ -55,15 +55,25 @@ p <- dim(BaseMat)[2]
 # Initialization
 
 ```{r}
-Beta = matrix(rnorm(n=p*n), nrow = p, ncol = n)   # matrice iniziale con errore
-mu = rnorm(n=p)         # mu iniziale con errore
-tau_eps = 100      # lo considera già al quadrato
-K = rWishart(n=1,df = p+10, Sigma = diag(p) )
+# Define the starting matrix with error
+Beta = matrix(rnorm(n = p*n), nrow = p, ncol = n)
+
+# Define the starting value of mu with error
+mu = rnorm(n=p)
+
+# Fix tau_eps (squared)
+tau_eps = 100
+
+# Define the precision matrix K
+K = rWishart(n = 1, df = p+10, Sigma = diag(p))
 K = K[,,1]
 # ACutils::ACheatmap(K,center_value = NULL, remove_diag = T)
+
 tbase_base = t(BaseMat)%*%BaseMat # p x p (phi_t * phi)
-tbase_data = t(BaseMat)%*%t(y_hat_true) # p x n (phi_t * Y_t)  mettiamo insieme tutti i beta, verranno etrsatte le colonne nel file C
+tbase_data = t(BaseMat)%*%t(y_hat_true) # p x n (phi_t * Y_t)  mettiamo insieme tutti i beta, verranno estratte le colonne nel file C
 Sdata = sum(diag(y_hat_true%*%t(y_hat_true))) # inefficient calculation ((2b + Sdata) è il b di tau_eps a posteriori) qui mette phi*beta = 0 come inizializz.
+
+# Set True binary flag used to update values
 Update_Beta <- TRUE
 Update_Mu <- TRUE
 Update_Tau <- TRUE
@@ -77,19 +87,20 @@ beta_sig2 = 0.2
 # Compute graph density
 graph_density = 0.3
 
-# number of iterations
+# Set the number of iterations
 niter <- 10000 
 
 # Create a list for chains
-chains <- list(Beta = vector("list", length = niter),
-               mu = vector("list", length = niter),
-               tau_eps = vector("list", length = niter),
-               K = vector("list", length = niter),
-               G = vector("list", length = niter),
-               z = vector("list", length = niter),
-               rho = vector("list", length = niter),
-               time = vector("list", length = niter)
-               ) 
+chains <- list(
+  Beta = vector("list", length = niter),
+  mu = vector("list", length = niter),
+  tau_eps = vector("list", length = niter),
+  K = vector("list", length = niter),
+  G = vector("list", length = niter),
+  z = vector("list", length = niter),
+  rho = vector("list", length = niter),
+  time = vector("list", length = niter)
+) 
 
 # Initialization of the chains
 chains$Beta[[1]] <- Beta
@@ -98,21 +109,16 @@ chains$tau_eps[[1]] <- tau_eps
 chains$K[[1]] <- K
 chains$G[[1]] <- diag(1,p,p)
 chains$z[[1]] <- rep(1,p)
-
 chains$time <- 0
-
 chains$rho[[1]] <- p
-
 sigma <-0.5
 theta<-1
-
 weights_a <- rep(1,p-1)
 weights_d <- rep(1,p-1)
 total_weights <- 0
 total_K = matrix(0,p,p)
 total_graphs = matrix(0,p,p)
 graph_start = NULL
-
 
 ```
 
@@ -121,50 +127,62 @@ graph_start = NULL
 ```{r}
 for(s in 2:10000) {
 
-  fit = UpdateParamsGSL( chains$Beta[[s-1]], chains$mu[[s-1]], chains$tau_eps[[s-1]], 
-                         chains$K[[s-1]], tbase_base, tbase_data, Sdata,   
-                      a_tau_eps, b_tau_eps, sigma_mu, r,
-                      Update_Beta, Update_Mu, Update_Tau )
+  fit = UpdateParamsGSL(
+    chains$Beta[[s-1]],
+    chains$mu[[s-1]],
+    chains$tau_eps[[s-1]], 
+    chains$K[[s-1]],
+    tbase_base,
+    tbase_data,
+    Sdata,
+    a_tau_eps, 
+    b_tau_eps, 
+    sigma_mu,
+    r,
+    Update_Beta,
+    Update_Mu,
+    Update_Tau
+    )
   
-  # Beta
+  # Save Beta
   chains$Beta[[s]] <- fit$Beta
   
-  # mu
+  # Save mu
   chains$mu[[s]] <- fit$mu
   
-  # tau
+  # Save tau
   chains$tau_eps[[s]] <- fit$tau_eps
   
+  # Set options for a single iteration of the Gibbs_sampler
+  options = set_options(
+    sigma_prior_0=sigma,
+    sigma_prior_parameters=list("a"=1,"b"=1,"c"=1,"d"=1),
+    theta_prior_0=theta,
+    theta_prior_parameters=list("c"=1,"d"=1),
+    rho0=chains$rho[[s-1]],    # start with one group
+    weights_a0=weights_a,
+    weights_d0=weights_d,
+    total_weights0=total_weights,
+    total_K0 = total_K,
+    total_graphs0 = total_graphs,
+    graph = graph_start,
+    alpha_target=0.234,
+    beta_mu=graph_density,   # da modificare (expected value beta distr of the graph)
+    beta_sig2=beta_sig2,     # da modificare (var beta distr del grafo, fra 0 e 0.25)
+    d=3,                     # param della G wishart (default 3)
+    alpha_add=0.5, 
+    adaptation_step=1/(p*1000),
+    update_sigma_prior=TRUE,
+    update_theta_prior=TRUE,
+    update_weights=TRUE,
+    update_partition=TRUE,
+    update_graph=TRUE,
+    perform_shuffle=TRUE
+    )
   
-  options = set_options(  sigma_prior_0=sigma,
-                          sigma_prior_parameters=list("a"=1,"b"=1,"c"=1,"d"=1),
-                          theta_prior_0=theta,
-                          theta_prior_parameters=list("c"=1,"d"=1),
-                          rho0=chains$rho[[s-1]], # start with one group
-                          weights_a0=weights_a,
-                          weights_d0=weights_d,
-                          total_weights0=total_weights,
-                          total_K0 = total_K,
-                          total_graphs0 = total_graphs,
-                          graph = graph_start,
-                          alpha_target=0.234,
-                          beta_mu=graph_density,   # da modificare (expected value beta distr of the graph)
-                          beta_sig2=beta_sig2,     # da modificare (var beta distr del grafo, fra 0 e 0.25)
-                          d=3,                     # param della G wishart (default 3)
-                          alpha_add=0.5,
-                          adaptation_step=1/(p*1000),
-                          update_sigma_prior=TRUE,
-                          update_theta_prior=TRUE,
-                          update_weights=TRUE,
-                          update_partition=TRUE,
-                          update_graph=TRUE,
-                          perform_shuffle=TRUE  )
-  
-  
-  ## Run 
-  
+  # Run an iteration of the Gibbs Sampler
   res <- Gibbs_sampler(
-    data = t(fit$Beta - fit$mu),  # da provare
+    data = t(fit$Beta - fit$mu),
     niter = 1, # niter finali, già tolto il burn in
     nburn = 0,
     thin = 1,
@@ -173,54 +191,50 @@ for(s in 2:10000) {
     print = FALSE
   )
   
-  
   z = do.call(rbind, lapply(res$rho, rho_to_z))
   
+  # Save rho
   chains$rho[[s]] <- res$rho[[1]]
   
+  # Save K
   chains$K[[s]] <- res$K [[1]]
   
-  chains$G[[s]] <- res$G [[1]]   #primo valore NULL o identità 
+  # Save G
+  chains$G[[s]] <- res$G [[1]]   # primo valore NULL o identità 
   
-  chains$z[[s]] <- z      #primo valore NULL o mettiamo tutti 1
+  # Save z
+  chains$z[[s]] <- z      # primo valore NULL o mettiamo tutti 1
   
-  #salvare qui dentro i tempi per ogni K
+  # Save times for each K
   chains$time[[s]] <- res$execution_time
   
+  # Update quantities for the next iteration
+  # weights
   weights_a <- res$weights_a
   weights_d <- res$weights_d
-  
   total_weights <- res$total_weights
   total_K <- res$total_K [[1]]
   total_graphs <- res$total_graphs [[1]]
-  
-  # update the initial graph
+  # graph
   graph_start = res$bdgraph_start
-  
 }
 
 ```
 
-# Final plots
+# Final plots: Plot of the obtained K_fin
 
 ```{r}
+# Set the number burn in iterations
+burn_in <- 1000  # TODO: decide which value to fix
 
-# burn in 
-burn_in <- 1000  # DA SCEGLIERE
-# chain_beta <- chain_beta[(burn_in + 1):niter]
-# chain_mu <- chain_mu[(burn_in + 1):niter]
-# chain_tau <- chain_tau[(burn_in + 1):niter]
-
-
-# K aggiornata
-# somma dei tempi*K/tot_tempo
+# Update K as the sum of times*K/tot_time
 sum <- 0
 for(i in (burn_in+1):niter){
   sum <- sum + chains$time[[i]]*chains$K[[i]]
 }
-
 K_fin <- sum/sum(chains$time)
 
+# Plot obtained K_fin
 ACutils::ACheatmap(
   K_fin,  
   use_x11_device = F,
@@ -234,31 +248,30 @@ ACutils::ACheatmap(
 
 ```
 
+# Useful plots: 1. Plot smoothed curves
+
 ```{r}
-# plot smoothed curves
-
-# mean Beta
+# Compute the mean of Beta in order to have data_post
 sum_Beta <- matrix(0, p, n)
-
 for(i in (burn_in+1):niter){
   sum_Beta <- sum_Beta + chains$Beta[[1]]
 }
 mean_Beta <- sum_Beta/(niter-burn_in)
-
-
 data_post <- BaseMat %*% mean_Beta
 
+# Compute the x value, create the basis and the functional object
 x <- seq(0, 1, length.out=r)
 basis <- create.bspline.basis(rangeval=range(x), nbasis=40, norder=3) 
-
 data.fd <- Data2fd(y = data_post, argvals = x, basisobj = basis)
+
+# Plot smoothed curves
 plot.fd(data.fd, main="smoothed curves")
 
 ```
 
-```{r}
-# plot final Beta matrix
+# Useful plots: 2. Plot of the final Beta matrix
 
+```{r}
 ACutils::ACheatmap(
   chains$Beta[[niter]],  
   use_x11_device = F,
@@ -272,8 +285,9 @@ ACutils::ACheatmap(
 
 ```
 
+# Useful plots: 2. Traceplots (tau_eps, mu)
+
 ```{r}
-# traceplot tau_eps
 library(coda)
 library(lattice)
 
@@ -283,9 +297,7 @@ plot(ts(mcmc(tau_plot)))
 ```
 
 ```{r}
-# traceplot mu
 mu_plot <- matrix(0, niter, p)
-
 for(i in 1:niter){
   mu_plot[i, ] <- chains$mu[[i]]
 }
@@ -296,9 +308,9 @@ plot(ts(mcmc(mu_plot[, 21:30])))
 plot(ts(mcmc(mu_plot[, 31:40])))
 ```
 
-```{r}
-# plot plinks matrix
+# Useful plots: 3. Plot of the plinks matrix
 
+```{r}
 last_plinks = chains$G[[niter]]
 
 ACutils::ACheatmap(
@@ -331,7 +343,7 @@ ACutils::ACheatmap(
 )
 
 
-#Criterion 2 to select the threshold
+# Criterion 2 to select the threshold
 bfdr_select = BFDR_selection(last_plinks, tol = seq(0.1, 1, by = 0.001))
 
 # Inspect the threshold and assign final graph
