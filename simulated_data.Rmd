@@ -31,9 +31,11 @@ shhh("RcppArmadillo")
 shhh("RcppEigen")
 
 ## Load custom functions
-source("utility_functions.R");source("bulky_functions.R");source("data_generation.R")
-sourceCpp("wade.cpp")
-Rcpp::sourceCpp('UpdateParamsGSL.cpp')
+source("functions/utility_functions.R");
+source("functions/bulky_functions.R");
+source("functions/data_generation.R")
+sourceCpp("functions/wade.cpp")
+Rcpp::sourceCpp('functions/UpdateParamsGSL.cpp')
 
 library('RcppGSL')
 library(fda)
@@ -44,8 +46,8 @@ library(tidyverse)
 
 ```{r}
 # Import simulated data
-BaseMat = as.matrix(read_csv('BaseMat.csv'))
-y_hat_true = as.matrix(read_csv('y_hat_true.csv'))
+BaseMat = as.matrix(read_csv('simulated_data/BaseMat.csv'))
+y_hat_true = as.matrix(read_csv('simulated_data/y_hat_true.csv'))
 
 n <- dim(y_hat_true)[1]
 r <- dim(y_hat_true)[2]
