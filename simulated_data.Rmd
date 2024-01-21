@@ -1,6 +1,8 @@
 ---
 title: "simulated_data"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 date: "2024-01-13"
 ---
 
@@ -10,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Load libraries
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 shhh = function(lib_name){ # It's a library, so shhh!
   suppressWarnings(suppressMessages(require(lib_name, character.only = TRUE)))
 }
@@ -31,11 +33,11 @@ shhh("RcppArmadillo")
 shhh("RcppEigen")
 
 ## Load custom functions
-source("functions/utility_functions.R");
-source("functions/bulky_functions.R");
-source("functions/data_generation.R")
-sourceCpp("functions/wade.cpp")
-Rcpp::sourceCpp('functions/UpdateParamsGSL.cpp')
+source("utility_functions.R");
+source("bulky_functions.R");
+source("data_generation.R")
+sourceCpp("wade.cpp")
+Rcpp::sourceCpp('UpdateParamsGSL.cpp')
 
 library('RcppGSL')
 library(fda)
@@ -46,8 +48,8 @@ library(tidyverse)
 
 ```{r}
 # Import simulated data
-BaseMat = as.matrix(read_csv('simulated_data/BaseMat.csv'))
-y_hat_true = as.matrix(read_csv('simulated_data/y_hat_true.csv'))
+BaseMat = as.matrix(read_csv('BaseMat.csv'))
+y_hat_true = as.matrix(read_csv('y_hat_true.csv'))
 
 n <- dim(y_hat_true)[1]
 r <- dim(y_hat_true)[2]
@@ -104,22 +106,24 @@ chains <- list(
   time = vector("list", length = niter)
 ) 
 
+simKG <- readRDS("simKG.rds")
+
 # Initialization of the chains
 chains$Beta[[1]] <- Beta
 chains$mu[[1]] <- mu
 chains$tau_eps[[1]] <- tau_eps 
-chains$K[[1]] <- K
-chains$G[[1]] <- diag(1,p,p)
-chains$z[[1]] <- rep(1,p)
+chains$K[[1]] <- simKG$Prec
+chains$G[[1]] <- simKG$Graph
+chains$z[[1]] <- c(rep(1,13), rep(2,13), rep(3,14))
 chains$time <- 0
-chains$rho[[1]] <- p
+chains$rho[[1]] <- c(13,13,14)
 sigma <-0.5
 theta<-1
 weights_a <- rep(1,p-1)
 weights_d <- rep(1,p-1)
 total_weights <- 0
-total_K = matrix(0,p,p)
-total_graphs = matrix(0,p,p)
+total_K = simKG$Prec
+total_graphs = simKG$Graph
 graph_start = NULL
 
 ```
@@ -212,11 +216,11 @@ for(s in 2:10000) {
   
   # Update quantities for the next iteration
   # weights
-  weights_a <- res$weights_a
-  weights_d <- res$weights_d
+  weights_a <- res$weights_a[[1]]
+  weights_d <- res$weights_d[[1]]
   total_weights <- res$total_weights
-  total_K <- res$total_K [[1]]
-  total_graphs <- res$total_graphs [[1]]
+  total_K <- res$total_K[[1]]
+  total_graphs <- res$total_graphs[[1]]
   # graph
   graph_start = res$bdgraph_start
 }
@@ -256,7 +260,7 @@ ACutils::ACheatmap(
 # Compute the mean of Beta in order to have data_post
 sum_Beta <- matrix(0, p, n)
 for(i in (burn_in+1):niter){
-  sum_Beta <- sum_Beta + chains$Beta[[1]]
+  sum_Beta <- sum_Beta + chains$Beta[[i]]
 }
 mean_Beta <- sum_Beta/(niter-burn_in)
 data_post <- BaseMat %*% mean_Beta
@@ -267,7 +271,8 @@ basis <- create.bspline.basis(rangeval=range(x), nbasis=40, norder=3)
 data.fd <- Data2fd(y = data_post, argvals = x, basisobj = basis)
 
 # Plot smoothed curves
-plot.fd(data.fd, main="smoothed curves")
+plot.fd(data.fd[1,], main="smoothed curves")
+lines(x,y_hat_true[1,], main="smoothed curves", col='red')
 
 ```
 
@@ -362,5 +367,36 @@ ACutils::ACheatmap(
   col.center = "grey50",
   col.lower = "white"
 )
+
+```
+
+```{r}
+
+z <- matrix(0, niter,40)
+
+for(i in 1:niter){
+  z[i,] <- as.vector(chains$z[[i]])
+}
+
+
+rand_index = apply(z, 1, mcclust::arandi, chains$z[[1]])
+
+# plotting the traceplot of the index
+plot(
+  x = seq_along(rand_index),
+  y = rand_index,
+  type = "n",
+  xlab = "Iterations",
+  ylab = "Rand Index",
+  main = paste(
+    "Rand Index - Traceplot\n",
+    "Last:",
+    round(tail(rand_index, n=1), 3),
+    "- Mean:",
+    round(mean(rand_index), 2)
+  )
+)
+lines(x = seq_along(rand_index), y = rand_index)
+abline(h = 1, col = "red", lwd = 4)
 
 ```
