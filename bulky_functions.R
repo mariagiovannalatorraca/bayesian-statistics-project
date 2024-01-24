@@ -1195,6 +1195,7 @@ Gibbs_sampler = function(data,
         S = vector("list", length = niter),
         sigma = vector("numeric", length = niter),
         theta = vector("numeric", length = niter),
+        
         weights_a = vector("list", length = niter),
         weights_d = vector("list", length = niter),
         bdgraph_start = NULL,
@@ -1216,8 +1217,8 @@ Gibbs_sampler = function(data,
     #total_K = matrix(0,p,p)
     
     # initialize the sum of all graphs
-    #total_graphs = matrix(0,p,p)
-    g.start = "empty"
+    # total_graphs = matrix(0,p,p)
+    # g.start = "empty"
 
     # save start time for measuring execution time
     start_time = Sys.time()
@@ -1248,7 +1249,7 @@ Gibbs_sampler = function(data,
              )
              }
             
-          else {
+     else {
             # we run a single iteration of BDgraph with iter = 1 and burnin = 0
             output = bdgraph(
                 data,
@@ -1262,7 +1263,7 @@ Gibbs_sampler = function(data,
                 g.prior = 0.5,
                 df.prior = d,
                 CCG_D = NULL,
-                g.start = graph$last_graph,
+                g.start = graph,
                 jump = NULL,
                 save = TRUE,
                 print = 1000,
@@ -1270,18 +1271,16 @@ Gibbs_sampler = function(data,
                 threshold = 1e-8
             )
           }
-      last_G = output$last_graph
       
         # update graph
         if (options$update_graph){
           
             # save bdgraph object
-            save_res$bdgraph_start = output
+            save_res$bdgraph_start = output$last_graph
             
-            # extract adjacency matrix G
-            last_G = output$last_graph
-            # update for the next iteration
-            g.start = last_G
+            # extract adjacency matrix G and update for the next iteration
+            graph = output$last_graph
+            
             # extract precision matrix K
             last_K = output$last_K
 
@@ -1299,6 +1298,9 @@ Gibbs_sampler = function(data,
             
         }
       else{
+        graph <- output$last_graph
+        
+        save_res$bdgraph_start = output$last_graph
         save_res$total_weights <- total_weights
         save_res$total_K[[it_saved+1]] <- total_K
         save_res$total_graphs[[it_saved+1]] <- total_graphs
@@ -1311,7 +1313,7 @@ Gibbs_sampler = function(data,
                                                             weights_d,
                                                             theta_prior,
                                                             sigma_prior,
-                                                            last_G,
+                                                            graph,
                                                             beta_params)
             
             rho = list_output_update_partition$rho_updated
@@ -1349,7 +1351,7 @@ Gibbs_sampler = function(data,
         }
       
         if(options$perform_shuffle){
-            rho = shuffle_partition(rho, last_G, sigma_prior, beta_params$alpha, beta_params$beta)
+            rho = shuffle_partition(rho, graph, sigma_prior, beta_params$alpha, beta_params$beta)
         }
         
         if(options$update_sigma_prior){
@@ -1388,7 +1390,7 @@ Gibbs_sampler = function(data,
         }
         
         if(options$update_graph){
-            last_S = get_S_from_G_rho(last_G,rho)
+            last_S = get_S_from_G_rho(graph,rho)
         }
         
         # save results only on thin iterations
