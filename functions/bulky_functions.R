@@ -1131,8 +1131,7 @@ Gibbs_sampler = function(data,
                          thin,
                          options,
                          seed=1234,
-                         print=TRUE)
-{
+                         print=TRUE){
     n = nrow(data) # number of observations
     p = ncol(data) # number of nodes
     n_total_iter = nburn + niter * thin # total iterations to be made
@@ -1147,6 +1146,7 @@ Gibbs_sampler = function(data,
     total_K                = options$total_K0
     total_graphs           = options$total_graphs0
     graph                  = options$graph
+    last_S                 = NULL
     adaptation_step        = options$adaptation_step
     sigma_prior_parameters = options$sigma_prior_parameters
     theta_prior_parameters = options$theta_prior_parameters
@@ -1162,7 +1162,6 @@ Gibbs_sampler = function(data,
     beta_mu   = options$beta_mu
     beta_sig2 = options$beta_sig2
     
-
     # checks
     if(sum(rho) != p)
         stop("The partition rho must sum to the number of variables p")
@@ -1209,49 +1208,13 @@ Gibbs_sampler = function(data,
     if(print){
         pb = txtProgressBar(min=1, max=n_total_iter, initial=1, style=3)
     }
-    
-    # initialize the sum of the weights of the graphs
-    #total_weights = 0
-    #total_K = matrix(0,p,p)
-    
-    # initialize the sum of all graphs
-    #total_graphs = matrix(0,p,p)
-    g.start = "empty"
 
     # save start time for measuring execution time
     start_time = Sys.time()
     
     # start the simulation
     for(iter in 1:n_total_iter){
-        #log_print("Iter:", console = FALSE)
-        #log_print(iter, console = FALSE)
-
-        # update graph
-        if (options$update_graph){
-           if(is.null(graph)){ 
-             output = bdgraph(
-             data,
-             rho,
-             n,
-             method = "ggm",
-             algorithm = "bdmcmc",
-             iter = 1,
-             burnin = 0,
-             not.cont = NULL,
-             g.prior = 0.5,
-             df.prior = d,
-             CCG_D = NULL,
-             g.start = "empty",
-             jump = NULL,
-             save = TRUE,
-             print = 1000,
-             cores = NULL,
-             threshold = 1e-8
-             )
-             }
-            
-          else {
-            # we run a single iteration of BDgraph with iter = 1 and burnin = 0
+        if(is.null(graph)){ 
             output = bdgraph(
                 data,
                 rho,
@@ -1264,26 +1227,48 @@ Gibbs_sampler = function(data,
                 g.prior = 0.5,
                 df.prior = d,
                 CCG_D = NULL,
-                g.start = graph$last_graph,
+                g.start = "empty",
                 jump = NULL,
                 save = TRUE,
                 print = 1000,
                 cores = NULL,
                 threshold = 1e-8
             )
-            }
-
-            # save bdgraph object
-            save_res$bdgraph_start = output
+         } else {
+            output = bdgraph(
+                data,
+                rho,
+                n,
+                method = "ggm",
+                algorithm = "bdmcmc",
+                iter = 1,
+                burnin = 0,
+                not.cont = NULL,
+                g.prior = 0.5,
+                df.prior = d,
+                CCG_D = NULL,
+                g.start = graph,
+                jump = NULL,
+                save = TRUE,
+                print = 1000,
+                cores = NULL,
+                threshold = 1e-8
+            )
+        }
+        
+        # update graph
+        if (options$update_graph){
             
-            # extract adjacency matrix G
-            last_G = output$last_graph
-            # update for the next iteration
-            g.start = last_G
+            # save bdgraph object
+            save_res$bdgraph_start = output$last_graph
+            
+            # extract adjacency matrix G and update for the next iteration
+            graph = output$last_graph
+            
             # extract precision matrix K
             last_K = output$last_K
 
-            if(niter > nburn){ # only if niter > nburn right? TODO what about burnin? Siamo 'sgor?
+            if(niter > nburn){
                 # update total_weights
                 total_weights = total_weights + output$all_weights
                 # update total_graphs taking into consideration the weights
@@ -1292,21 +1277,29 @@ Gibbs_sampler = function(data,
             }
             
             save_res$total_weights <- total_weights
-            save_res$total_K <- total_K
-            save_res$total_graphs <- total_graphs
+            save_res$total_K[[it_saved+1]] <- total_K
+            save_res$total_graphs[[it_saved+1]] <- total_graphs
             
+        }
+        else{
+            graph <- output$last_graph
+            save_res$bdgraph_start = output$last_graph
+            save_res$total_weights <- total_weights
+            save_res$total_K[[it_saved+1]] <- total_K
+            save_res$total_graphs[[it_saved+1]] <- total_graphs
         }
         
         if(options$update_partition){
-            list_output_update_partition = update_partition(rho,
-                                                            alpha_add,
-                                                            weights_a,
-                                                            weights_d,
-                                                            theta_prior,
-                                                            sigma_prior,
-                                                            last_G,
-                                                            beta_params)
-            
+            list_output_update_partition = update_partition(
+                rho,
+                alpha_add,
+                weights_a,
+                weights_d,
+                theta_prior,
+                sigma_prior,
+                graph,
+                beta_params
+            )
             rho = list_output_update_partition$rho_updated
 
             # it makes sense to perform the adaptive step only if we're updating the partition
@@ -1333,30 +1326,37 @@ Gibbs_sampler = function(data,
                     
                 }
             }
-            save_res$weights_d <- weights_d
-            save_res$weights_a <- weights_a
+            save_res$weights_d[[it_saved+1]] <- weights_d
+            save_res$weights_a[[it_saved+1]] <- weights_a
         }
-        
+        else{
+          save_res$weights_d[[it_saved+1]] <- weights_d
+          save_res$weights_a[[it_saved+1]] <- weights_a
+        }
+      
         if(options$perform_shuffle){
-            rho = shuffle_partition(rho, last_G, sigma_prior, beta_params$alpha, beta_params$beta)
+            rho = shuffle_partition(rho, graph, sigma_prior, beta_params$alpha, beta_params$beta)
         }
         
         if(options$update_sigma_prior){
             candidate <- runif(1,max(0,-theta_prior),1)
-            alpha_MH <- full_conditional_sigma(candidate,
-                                               theta_prior,
-                                               rho,
-                                               sigma_prior_parameters$a,
-                                               sigma_prior_parameters$b,
-                                               sigma_prior_parameters$c,
-                                               sigma_prior_parameters$d) -
-                        full_conditional_sigma(sigma_prior,
-                                               theta_prior,
-                                               rho,
-                                               sigma_prior_parameters$a,
-                                               sigma_prior_parameters$b,
-                                               sigma_prior_parameters$c,
-                                               sigma_prior_parameters$d)
+            alpha_MH <- full_conditional_sigma(
+                candidate,
+                theta_prior,
+                rho,
+                sigma_prior_parameters$a,
+                sigma_prior_parameters$b,
+                sigma_prior_parameters$c,
+                sigma_prior_parameters$d
+                ) - full_conditional_sigma(
+                        sigma_prior,
+                        theta_prior,
+                        rho,
+                        sigma_prior_parameters$a,
+                        sigma_prior_parameters$b,
+                        sigma_prior_parameters$c,
+                        sigma_prior_parameters$d
+                    )
             
             if(log(runif(1)) <= min(alpha_MH,log(1))){
                 sigma_prior = candidate
@@ -1376,8 +1376,8 @@ Gibbs_sampler = function(data,
             )
         }
         
-        if (options$update_graph){
-            last_S = get_S_from_G_rho(last_G,rho)
+        if(options$update_graph){
+            last_S = get_S_from_G_rho(graph,rho)
         }
         
         # save results only on thin iterations
@@ -1389,9 +1389,16 @@ Gibbs_sampler = function(data,
                 save_res$K[[it_saved]] = total_K / total_weights
                 save_res$G[[it_saved]] = total_graphs / total_weights
             }
+            else{
+              save_res$K[[it_saved]] = total_K
+              save_res$G[[it_saved]] = total_graphs
+            }
             if(options$update_partition){
                 save_res$rho[[it_saved]] = rho
                 save_res$accepted[[it_saved]] = list_output_update_partition$accepted
+            }
+            else{
+              save_res$rho[[it_saved]] = rho
             }
             if(options$update_sigma_prior){
                 save_res$sigma[[it_saved]] = sigma_prior
@@ -1405,19 +1412,9 @@ Gibbs_sampler = function(data,
         if(print){
             setTxtProgressBar(pb, iter)
         }
-        #log_print("last_G:", console = FALSE)
-        #log_print(last_G, console = FALSE)
-        #log_print("last_S:", console = FALSE)
-        #log_print(last_S, console = FALSE)
-        #log_print("---------------------------------------------------------------------", console = FALSE)
     }
 
     save_res$execution_time = Sys.time() - start_time
-    
-    #output = list( sample_graphs = sample_graphs, graph_weights = graph_weights, K_hat = "empty",
-    #                   all_graphs = niter-nburn, all_weights = all_weights, last_graph = last_G,
-    #                   last_K = last_K, last_Theta = last_Theta )
-    #
     
     if(print){close(pb)}
     return(save_res)

@@ -33,11 +33,11 @@ shhh("RcppArmadillo")
 shhh("RcppEigen")
 
 ## Load custom functions
-source("utility_functions.R");
-source("bulky_functions.R");
-source("data_generation.R")
-sourceCpp("wade.cpp")
-Rcpp::sourceCpp('UpdateParamsGSL.cpp')
+source("functions/utility_functions.R");
+source("functions/bulky_functions.R");
+source("functions/data_generation.R")
+sourceCpp("functions/wade.cpp")
+Rcpp::sourceCpp('functions/UpdateParamsGSL.cpp')
 
 library('RcppGSL')
 library(fda)
@@ -223,8 +223,7 @@ for(s in 2:niter) {
   # Save times for each K
   chains$time[[s]] <- res$execution_time
   
-  # Update quantities for the next iteration
-  # weights
+  # Update quantities for the next iteration weights
   weights_a <- res$weights_a[[1]]
   weights_d <- res$weights_d[[1]]
   total_weights <- res$total_weights
