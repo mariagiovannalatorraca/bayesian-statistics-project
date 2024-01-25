@@ -48,10 +48,10 @@ library(tidyverse)
 
 ```{r}
 # Import simulated data
-BaseMat = as.matrix(read_csv('BaseMat.csv'))
-y_hat_true = as.matrix(read_csv('y_hat_true.csv'))
-beta_true = as.matrix(read_csv('beta_true.csv'))
-mu_true = as.matrix(read_csv('mu_true.csv'))
+BaseMat = as.matrix(read_csv('simulated_data/BaseMat.csv'))
+y_hat_true = as.matrix(read_csv('simulated_data/y_hat_true.csv'))
+beta_true = as.matrix(read_csv('simulated_data/beta_true.csv'))
+mu_true = as.matrix(read_csv('simulated_data/mu_true.csv'))
 
 n <- dim(y_hat_true)[1]
 r <- dim(y_hat_true)[2]
