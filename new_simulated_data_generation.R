@@ -136,12 +136,12 @@ for (i in c(1:n)){
 plot(x, y_hat_true[1, ], type='l')
 
 # Save data in a cvs
-BaseMat_path = "BaseMat.csv"
-y_hat_true_path = "y_hat_true.csv"
-beta_true_path = "beta_true.csv"
-mu_true_path = "C:/Users/volor/Desktop/Bayesian Statistics/Project/R/mu_true.csv"
+BaseMat_path = "simulated_data/BaseMat.csv"
+y_hat_true_path = "simulated_data/y_hat_true.csv"
+beta_true_path = "simulated_data/beta_true.csv"
+mu_true_path = "simulated_data/mu_true.csv"
 
-saveRDS(sim_KG, file ="simKG.rds")
+saveRDS(sim_KG, file = "simulated_data/simKG.rds")
 
 write.csv(BaseMat, file = BaseMat_path, row.names = FALSE)
 write.csv(y_hat_true, file = y_hat_true_path, row.names = FALSE)
