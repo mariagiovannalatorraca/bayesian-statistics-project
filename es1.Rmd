@@ -33,11 +33,11 @@ shhh("RcppArmadillo")
 shhh("RcppEigen")
 
 ## Load custom functions
-source("utility_functions.R");
-source("bulky_functions.R");
-source("data_generation.R")
-sourceCpp("wade.cpp")
-Rcpp::sourceCpp('UpdateParamsGSL.cpp')
+source("functions/utility_functions.R");
+source("functions/bulky_functions.R");
+source("functions/data_generation.R")
+sourceCpp("functions/wade.cpp")
+Rcpp::sourceCpp('functions/UpdateParamsGSL.cpp')
 
 library('RcppGSL')
 library(fda)
@@ -56,13 +56,13 @@ Simuliamo i dati in sim_data.R con p=40 basi e 3 cluster di dimensioni [13, 13, 
 
 ```{r message=FALSE, warning=FALSE}
 # Import simulated data
-BaseMat = as.matrix(read_csv('BaseMat.csv'))        # matrix Phi, dim = 200 x 40
-y_hat_true = as.matrix(read_csv('y_hat_true.csv'))  # y true, dim = 300 x 200
-beta_true = as.matrix(read_csv('beta_true.csv'))    # beta, dim = 300 x 40
-mu_true = as.matrix(read_csv('mu_true.csv'))        # mu true, dim = 40 x 1
+BaseMat = as.matrix(read_csv('simulated_data/BaseMat.csv'))        # matrix Phi, dim = 200 x 40
+y_hat_true = as.matrix(read_csv('simulated_data/y_hat_true.csv'))  # y true, dim = 300 x 200
+beta_true = as.matrix(read_csv('simulated_data/beta_true.csv'))    # beta, dim = 300 x 40
+mu_true = as.matrix(read_csv('simulated_data/mu_true.csv'))        # mu true, dim = 40 x 1
 
 # object containing the true graph G, the true precision matrix K
-simKG <- readRDS("simKG.rds")                       
+simKG <- readRDS("simulated_data/simKG.rds")                       
 
 n <- dim(y_hat_true)[1]  # n=300
 r <- dim(y_hat_true)[2]  # r=200
