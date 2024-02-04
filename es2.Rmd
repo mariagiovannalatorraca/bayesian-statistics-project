@@ -1,0 +1,378 @@
+---
+title: "es2"
+output:
+  pdf_document: default
+  html_document: default
+date: "2024-01-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load libraries
+
+```{r message=FALSE, warning=FALSE}
+shhh = function(lib_name){ # It's a library, so shhh!
+  suppressWarnings(suppressMessages(require(lib_name, character.only = TRUE)))
+}
+shhh("tidyverse")
+shhh("ACutils")
+shhh("mvtnorm")
+shhh("salso")
+shhh("FGM")
+shhh("gmp")
+shhh("mcclust")
+shhh("mcclust.ext")
+shhh("logr")
+shhh("tidygraph")
+shhh("ggraph")
+shhh("igraph")
+shhh("Rcpp")
+shhh("RcppArmadillo")
+shhh("RcppEigen")
+
+## Load custom functions
+source("functions/utility_functions.R");
+source("bulky_functions_old.R");
+source("functions/data_generation.R")
+sourceCpp("functions/wade.cpp")
+Rcpp::sourceCpp('functions/UpdateParamsGSL.cpp')
+
+library('RcppGSL')
+library(fda)
+library(tidyverse)
+library(coda)
+library(lattice)
+```
+
+# Goal
+
+Stima della partizione dei dati simulati usando bulky functions del vecchio gruppo.
+
+# Simulated data
+
+Simuliamo i dati in sim_data.R con p=20 basi e 3 cluster di dimensioni [6,6,8]. Grafo e matrice di precisione sono generati attraverso la funzione Generate_BlockDiagonal.
+
+```{r message=FALSE, warning=FALSE}
+
+# !!! occhio a quali simulated data importi
+
+# Import simulated data
+BaseMat = as.matrix(read_csv('BaseMat.csv'))        # matrix Phi, dim = 200 x 20
+y_hat_true = as.matrix(read_csv('y_hat_true.csv'))  # y true, dim = 300 x 200
+beta_true = as.matrix(read_csv('beta_true.csv'))    # beta, dim = 300 x 20
+mu_true = as.matrix(read_csv('mu_true.csv'))        # mu true, dim = 20 x 1
+
+# object containing the true graph G, the true precision matrix K
+simKG <- readRDS("simKG.rds")                       
+
+n <- dim(y_hat_true)[1]  # n=300
+r <- dim(y_hat_true)[2]  # r=200
+p <- dim(BaseMat)[2]     # p=20
+```
+
+# Initialization
+
+```{r}
+# Define the starting Beta matrix
+Beta = t(beta_true)
+
+# Define the starting value of mu
+mu = as.vector(mu_true)
+
+# Fix tau_eps (squared)
+tau_eps = 100
+
+# Define the starting precision matrix K and graph G
+K = matrix(0,p,p) 
+G = matrix(0,p,p) 
+
+# Define the starting partition (all in one group)
+rho = p
+z = rep(1,p)
+
+# Compute quantities for function UpdateParamGSL
+tbase_base = t(BaseMat)%*%BaseMat             # p x p (phi_t * phi)
+tbase_data = t(BaseMat)%*%t(y_hat_true)       # p x n (phi_t * Y_t)  
+Sdata = sum(diag(y_hat_true%*%t(y_hat_true))) # initialize phi*beta = 0 
+
+# Set True binary flag used to update values
+Update_Beta <- FALSE
+Update_Mu <- FALSE
+Update_Tau <- FALSE
+
+# Define hyperparameters values
+a_tau_eps <- 2000
+b_tau_eps <- 2
+sigma_mu <- 100
+
+# Define variance of the Beta
+beta_sig2 = 0.2
+
+# Compute graph density
+graph_density = sum(simKG$Graph) / (p*(p-1))
+
+# Set the number of iterations and burn-in
+niter <- 10000
+burn_in <- 1000
+
+
+# initialization of parameters for set_options
+sigma <-0.5              # parameter of the prior of the partition
+theta <-1                # parameter of the prior of the partition
+weights_a <- rep(1,p-1)  # starting weights
+weights_d <- rep(1,p-1)  # starting weights
+
+
+```
+
+# Gibbs sampler
+
+```{r}
+# Set options for Gibbs_sampler
+  options = set_options(
+    sigma_prior_0=sigma,
+    sigma_prior_parameters=list("a"=1,"b"=1,"c"=1,"d"=1),
+    theta_prior_0=theta,
+    theta_prior_parameters=list("c"=1,"d"=1),
+    rho0=rho,    
+    weights_a0=weights_a,
+    weights_d0=weights_d,
+    alpha_target=0.234,
+    beta_mu=graph_density,   # expected value beta distr of the graph
+    beta_sig2=beta_sig2,     # var beta distr del grafo, fra 0 e 0.25
+    d=3,                     # param della G wishart (default 3)
+    alpha_add=0.5, 
+    adaptation_step=1/(p*1000),
+    update_sigma_prior=TRUE,
+    update_theta_prior=TRUE,
+    update_weights=TRUE,
+    update_partition=TRUE,
+    update_graph=TRUE,
+    perform_shuffle=TRUE
+    )
+  
+# Gibbs Sampler
+  res <- Gibbs_sampler(
+    data = t(Beta-mu),
+    niter = niter-burn_in,       # niter finali, già tolto il burn in
+    nburn = burn_in,
+    thin = 1,
+    options = options,
+    seed = 123456,
+    print = FALSE
+  )
+  
+
+
+```
+
+# Useful plots
+
+```{r}
+# Before saving, also append true data
+res$true_rho = c(6,6,8)
+res$true_precision = simKG$Prec
+res$true_graph = simKG$Graph
+# remove self loops
+res$true_graph[col(res$true_graph)==row(res$true_graph)] = 0
+
+
+
+# Posterior analysis
+
+## Recomputing the partition in other forms and the number of groups
+
+rho_true = res$true_rho
+r_true = rho_to_r(rho_true)
+z_true = rho_to_z(rho_true)
+p = length(z_true)
+num_clusters_true = length(rho_true)
+rho = res$rho
+r = do.call(rbind, lapply(res$rho, rho_to_r))
+z = do.call(rbind, lapply(res$rho, rho_to_z))
+num_clusters = do.call(rbind, lapply(res$rho, length))
+num_clusters = as.vector(num_clusters)
+
+
+### Acceptance frequency
+mean(res$accepted)   #0.02175
+
+### Barplot of changepoints
+bar_heights = colSums(r)
+cp_true = which(r_true==1)
+color <- ifelse(seq_along(bar_heights) %in% c(cp_true), "red", "gray")
+
+barplot(
+  bar_heights,
+  names = seq_along(bar_heights),
+  border = "NA",
+  space = 0,
+  yaxt = "n",
+  main="Changepoint frequency distribution",
+  #col = color,
+  cex.names=.6,
+  las=2
+)
+
+abline(v=cp_true-0.5, col="red", lwd=2)
+legend("topright", legend=c("True"), col=c("red"),
+       bty = "n",
+       lty = 1,
+       cex = 0.6)
+
+### Evolution of the number of clusters
+plot(
+  x = seq_along(num_clusters),
+  y = num_clusters,
+  type = "n",
+  xlab = "Iterations",
+  ylab = "Number of groups",
+  main = "Number of groups - Traceplot"
+)
+lines(x = seq_along(num_clusters), y = num_clusters)
+abline(h = length(z_to_rho(z_true)),
+       col = "red",
+       lwd = 4)
+legend("topleft", legend=c("True"), col=c("red"),
+       lty = 1,
+       cex = 1)
+
+barplot(
+  prop.table(table(num_clusters)),
+  xlab = "Number of groups",
+  ylab = "Relative Frequency",
+  main = paste(
+    "Number of groups - Relative Frequency\n",
+    "Last:",
+    tail(num_clusters, n = 1),
+    "- Mean:",
+    round(mean(num_clusters), 2),
+    "- True:",
+    num_clusters_true
+  )
+)
+
+### Evolution of the Rand Index 
+
+# computing rand index for each iteration
+rand_index = apply(z, 1, mcclust::arandi, z_true)
+
+# plotting the traceplot of the index
+plot(
+  x = seq_along(rand_index),
+  y = rand_index,
+  type = "n",
+  xlab = "Iterations",
+  ylab = "Rand Index",
+  main = paste(
+    "Rand Index - Traceplot\n",
+    "Last:",
+    round(tail(rand_index, n=1), 3),
+    "- Mean:",
+    round(mean(rand_index), 2)
+  )
+)
+lines(x = seq_along(rand_index), y = rand_index)
+abline(h = 1, col = "red", lwd = 4)
+
+### Retrieving best partition using VI on visited ones (order is guaranteed here)
+
+# Here we are satisfied with finding the optimal partition only in the set of those visited, not in all the possible ones. I expect it could work even worse. But at least it guarantees to find an admissible one.
+# I would say that it is the implementation of formula (13) of the Corradin-Danese paper (https://doi.org/10.1016/j.ijar.2021.12.019).
+
+# compute VI
+sim_matrix <- salso::psm(z)
+dists <- VI_LB(z, psm_mat = sim_matrix)
+
+# select best partition (among the visited ones)
+best_partition_index = which.min(dists)
+rho_est = rho[[best_partition_index]]
+z_est = z[best_partition_index,]
+
+# VI loss
+dists[best_partition_index]  
+
+# select best partition
+unname(z_est)
+
+# compute Rand Index
+mcclust::arandi(z_est, z_true)
+
+## Graph
+
+# Extract last plinks
+last_plinks = tail(res$G, n=1)[[1]]
+
+# Criterion 1 to select the threshold (should not work very well) and assign final graph
+threshold = 0.5
+G_est <- matrix(0,p,p)
+G_est[which(last_plinks>threshold)] = 1
+
+#Criterion 2 to select the threshold
+bfdr_select = BFDR_selection(last_plinks, tol = seq(0.1, 1, by = 0.001))
+
+# Inspect the threshold and assign final graph
+bfdr_select$best_treshold
+G_est = bfdr_select$best_truncated_graph
+
+### Standardized Hamming distance
+SHD = sum(abs(simKG$true_graph - G_est)) / (p^2 - p)
+SHD
+
+### Plot estimated matrices
+ACutils::ACheatmap(
+  last_plinks,
+  use_x11_device = F,
+  horizontal = F,
+  main = "Estimated plinks matrix",
+  center_value = NULL,
+  col.upper = "black",
+  col.center = "grey50",
+  col.lower = "white"
+)
+
+ACutils::ACheatmap(
+  G_est,
+  use_x11_device = F,
+  horizontal = F,
+  main = "Estimated Graph",
+  center_value = NULL,
+  col.upper = "black",
+  col.center = "grey50",
+  col.lower = "white"
+)
+
+ACutils::ACheatmap(
+  tail(res$K,n=1)[[1]],
+  use_x11_device = F,
+  horizontal = F,
+  main = "Estimated Precision matrix",
+  center_value = NULL,
+  col.upper = "black",
+  col.center = "grey50",
+  col.lower = "white"
+)
+
+### Evolution of the Kullback-Leibler
+kl_dist = do.call(rbind, lapply(res$K, function(k) {
+  ACutils::KL_dist(res$true_precision, k)
+}))
+
+last = round(tail(kl_dist, n=1), 3)
+plot(
+  x = seq_along(kl_dist[2000:length(kl_dist)]),
+  y = kl_dist[2000:length(kl_dist)],
+  type = "n",
+  xlab = "Iterations",
+  ylab = "K-L distance",
+  main = paste("Kullback-Leibler distance\nLast value:", last)
+)
+lines(x = seq_along(kl_dist[2000:length(kl_dist)]), y = kl_dist[2000:length(kl_dist)])
+
+# non c'è burn in !!!!
+
+
+
+```
