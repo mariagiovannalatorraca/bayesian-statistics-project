@@ -72,180 +72,69 @@ p <- dim(BaseMat)[2]     # p=40
 # Initialization
 
 ```{r}
-# Define the starting Beta matrix
-Beta = matrix(rnorm(n = p*n), nrow = p, ncol = n)
-
-# Define the starting value of mu
-mu = rnorm(n=p)
-
-# Fix tau_eps (squared)
-tau_eps = 100
-
-# Define the starting precision matrix K and graph G: in this case we start 
-# from the true K and true G and we will not update them
-K = simKG$Prec  
-G = simKG$Graph
-
-# Define the true partition with which we have generated data
-rho = c(13,13,14)
-z = c(rep(1,13), rep(2,13), rep(3,14))
-
 # Compute quantities for function UpdateParamGSL
 tbase_base = t(BaseMat)%*%BaseMat             # p x p (phi_t * phi)
 tbase_data = t(BaseMat)%*%t(y_hat_true)       # p x n (phi_t * Y_t)  
 Sdata = sum(diag(y_hat_true%*%t(y_hat_true))) # initialize phi*beta = 0 
 
-# Set True binary flag used to update values
-Update_Beta <- TRUE
-Update_Mu <- TRUE
-Update_Tau <- TRUE
-
-# Define hyperparameters values
-a_tau_eps <- 2000
-b_tau_eps <- 2
-sigma_mu <- 100
-
-# Define variance of the Beta
-beta_sig2 = 0.2
-
-# Compute graph density
-graph_density = sum(G) / (p*(p-1))
+set_UpdateParamsGSL_list = set_UpdateParamsGSL (
+    tbase_base  = tbase_base,
+    tbase_data  = tbase_data,
+    Sdata       = Sdata,
+    a_tau_eps   = 2000,
+    b_tau_eps   = 2,
+    sigma_mu    = 100,
+    r           = r,
+    Update_Beta = TRUE,
+    Update_Mu   = TRUE,
+    Update_Tau  = TRUE,
+)
 
 # Set the number of iterations and burn-in
 niter <- 10000
 burn_in <- 1000
 
-
-# Create a list for chains to save the values of each iteration
-chains <- list(
-  Beta = vector("list", length = niter),
-  mu = vector("list", length = niter),
-  tau_eps = vector("list", length = niter),
-  K = vector("list", length = niter),
-  G = vector("list", length = niter),
-  z = vector("list", length = niter),
-  rho = vector("list", length = niter),
-  time = vector("list", length = niter)
-) 
-
-
-# Initialization of the chains
-chains$Beta[[1]] <- Beta        
-chains$mu[[1]] <- mu
-chains$tau_eps[[1]] <- tau_eps 
-chains$K[[1]] <- K
-chains$G[[1]] <- G
-chains$z[[1]] <- z 
-chains$rho[[1]] <- rho 
-chains$time <- 0         # execution time
-
-# initialization of parameters for set_options
-sigma <-0.5              # parameter of the prior of the partition
-theta <-1                # parameter of the prior of the partition
-weights_a <- rep(1,p-1)  # starting weights
-weights_d <- rep(1,p-1)  # starting weights
-total_weights <- 0       # sum of weights
-total_K <- K
-total_graphs <- G
-graph_start <- NULL
+# Set the initialization values of the chains
+initialization_values = set_initialization(
+    Beta          = matrix(rnorm(n = p*n), nrow = p, ncol = n),
+    mu            = rnorm(n=p),
+    tau_eps       = 100,
+    K             = simKG$Prec,
+    G             = simKG$Graph,
+    z             = c(rep(1,13), rep(2,13), rep(3,14)), 
+    rho           = c(13, 13, 14),
+    sigma         = 0.5,
+    theta         = 1,
+    weights_a0    = rep(1,p-1),
+    weights_d0    = rep(1,p-1),
+    total_weights = 0,
+    total_K       = simKG$Prec,
+    total_graphs  = simKG$Graph,
+    graph_start   = NULL,
+    graph_density = sum(simKG$Graph) / (p*(p-1)),
+    beta_sig2     = 0.2,
+    d             = 3
+)
 
 ```
 
 # Gibbs sampler
-
 ```{r}
-for(s in 2:niter) {
-
-  fit = UpdateParamsGSL(
-    chains$Beta[[s-1]],
-    chains$mu[[s-1]],
-    chains$tau_eps[[s-1]], 
-    chains$K[[s-1]],
-    tbase_base,
-    tbase_data,
-    Sdata,
-    a_tau_eps, 
-    b_tau_eps, 
-    sigma_mu,
-    r,
-    Update_Beta,
-    Update_Mu,
-    Update_Tau
-    )
-  
-  # Save Beta
-  chains$Beta[[s]] <- fit$Beta
-  
-  # Save mu
-  chains$mu[[s]] <- fit$mu
-  
-  # Save tau
-  chains$tau_eps[[s]] <- fit$tau_eps
-  
-  # Set options for a single iteration of the Gibbs_sampler
-  options = set_options(
-    sigma_prior_0=sigma,
-    sigma_prior_parameters=list("a"=1,"b"=1,"c"=1,"d"=1),
-    theta_prior_0=theta,
-    theta_prior_parameters=list("c"=1,"d"=1),
-    rho0=chains$rho[[s-1]],    
-    weights_a0=weights_a,
-    weights_d0=weights_d,
-    total_weights0=total_weights,
-    total_K0 = total_K,
-    total_graphs0 = total_graphs,
-    graph = graph_start,
-    alpha_target=0.234,
-    beta_mu=graph_density,   # expected value beta distr of the graph
-    beta_sig2=beta_sig2,     # var beta distr del grafo, fra 0 e 0.25
-    d=3,                     # param della G wishart (default 3)
-    alpha_add=0.5, 
-    adaptation_step=1/(p*1000),
-    update_sigma_prior=FALSE,
-    update_theta_prior=FALSE,
-    update_weights=FALSE,
-    update_partition=FALSE,
-    update_graph=FALSE,
-    perform_shuffle=FALSE
-    )
-  
-  # Run an iteration of the Gibbs Sampler
-  res <- Gibbs_sampler(
-    data = t(fit$Beta - fit$mu),
-    niter = 1, # niter finali, già tolto il burn in
-    nburn = 0,
-    thin = 1,
-    options = options,
-    seed = 123456,
-    print = FALSE
-  )
-  
-  z = do.call(rbind, lapply(res$rho, rho_to_z))
-  
-  # Save rho
-  chains$rho[[s]] <- res$rho[[1]]
-  
-  # Save K
-  chains$K[[s]] <- res$K [[1]]
-  
-  # Save G
-  chains$G[[s]] <- res$G [[1]]    
-  
-  # Save z
-  chains$z[[s]] <- z      
-  
-  # Save times for each K
-  chains$time[[s]] <- res$execution_time
-  
-  # Update quantities for the next iteration
-  weights_a <- res$weights_a[[1]]
-  weights_d <- res$weights_d[[1]]
-  total_weights <- res$total_weights
-  total_K <- res$total_K[[1]]
-  total_graphs <- res$total_graphs[[1]]
-  graph_start = res$bdgraph_start
-}
-
+chains = Gibb_sampler_update(
+  set_UpdateParamsGSL_list,
+  niter, 
+  initialization_values,
+  alpha_target           = 0.234,
+  alpha_add              = 0.5,
+  adaptation_step        = 1/(p*1000),
+  seed                   = 123456,
+  update_sigma_prior     = FALSE,
+  update_theta_prior     = FALSE,
+  update_weights         = FALSE,
+  update_partition       = FALSE,
+  update_graph           = FALSE,
+  perform_shuffle        = FALSE
+)
 ```
 
 # Useful plots: 1. Plot smoothed curves

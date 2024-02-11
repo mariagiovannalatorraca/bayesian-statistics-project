@@ -1,5 +1,8 @@
 library(logr)
 
+sourceCpp("functions/wade.cpp")
+Rcpp::sourceCpp('functions/UpdateParamsGSL.cpp')
+
 #' Main function that updates the partition
 #'
 #' @param rho The partition in compact form (e.g. rho=c(1,4,5) means that the first group has 1 element, the second has 4 elements and the last has 5 elements).
@@ -1005,33 +1008,37 @@ full_conditional_sigma <- function(sigma, theta, rho, a, b, c, d){
     return(output)
 }
 
+
 #' Set options for the Gibbs sampler
 #'
-#' @param sigma_prior_0 initial parameter of the prior (5) from Martinez and Mena (2014).
-#' @param sigma_prior_parameters list of 4 parameters for updating sigma_prior, e.g. list("a"=1,"b"=1,"c"=1,"d"=1). For further details see Section 4 in Martinez and Mena (2014).
-#' @param theta_prior_0 initial parameter of the prior (5) from Martinez and Mena (2014).
-#' @param theta_prior_parameters list of 2 parameters for updating theta_prior, e.g. list("c"=1,"d"=1). For further details see Proposition 1 in Martinez and Mena (2014).
-#' @param rho0 initial partition (e.g. c(150,151))
-#' @param weights_a0 weights for choosing the candidate node in an add/split move.
-#' @param weights_d0 weights for choosing the candidate node in a delete/merge move.
-#' @param total_weights0 ------------------- TO DO
-#' @param total_K0 -------------------------
-#' @param total_graphs0 --------------------
-#' @param graph ----------------------------
-#' @param alpha_target target acceptance rate of the split and merge Metropolis-Hastings.
-#' @param beta_mu expected value for the Beta prior of the graph.
-#' @param beta_sig2 variance for the Beta prior of the graph. Must be between 0 and 0.25.
-#' @param d parameter of the G-Wishart. Default is 3.
-#' @param alpha_add probability of choosing an add/split move over a delete/merge move. Default is 0.5.
-#' @param adaptation_step adaptation step for tweaking how much the weights are updated each time. Fur further details see Section 4.2 in Benson and Friel (2018).
-#' @param update_sigma_prior boolean for choosing whether to update sigma_prior or not. Default is TRUE.
-#' @param update_theta_prior boolean for choosing whether to update theta_prior or not. Default is TRUE.
-#' @param update_weights boolean for choosing whether to update weights or not. Default is TRUE.
-#' @param update_partition boolean for choosing whether to update the partition or not. Default is TRUE.
-#' @param update_graph boolean for choosing whether to update the graph or not. Default is TRUE.
-#' @param perform_shuffle boolean for choosing whether to perform shuffle or not. Default is TRUE.
-#'
-#' @return a list with all options correctly set for working with the Gibbs sampler.
+#' This function sets various options required for running the Gibbs sampler.
+#' It allows customization of parameters, such as priors, initial values, adaptation steps, update flags, etc.
+#' 
+#' @param sigma_prior_0 Initial parameter of the prior (sigma) from Martinez and Mena (2014).
+#' @param sigma_prior_parameters List of parameters for updating sigma_prior.
+#' @param theta_prior_0 Initial parameter of the prior (theta) from Martinez and Mena (2014).
+#' @param theta_prior_parameters List of parameters for updating theta_prior.
+#' @param rho0 Initial partition.
+#' @param weights_a0 Weights for choosing the candidate node in an add/split move.
+#' @param weights_d0 Weights for choosing the candidate node in a delete/merge move.
+#' @param total_weights0 Total weights (added parameter).
+#' @param total_K0 Total K (added parameter).
+#' @param total_graphs0 Total graphs (added parameter).
+#' @param graph Initial graph.
+#' @param alpha_target Target acceptance rate of the split and merge Metropolis-Hastings.
+#' @param beta_mu Expected value for the Beta prior of the graph.
+#' @param beta_sig2 Variance for the Beta prior of the graph.
+#' @param d Parameter of the G-Wishart.
+#' @param alpha_add Probability of choosing an add/split move over a delete/merge move.
+#' @param adaptation_step Adaptation step for tweaking how much the weights are updated each time.
+#' @param update_sigma_prior Boolean for choosing whether to update sigma_prior or not.
+#' @param update_theta_prior Boolean for choosing whether to update theta_prior or not.
+#' @param update_weights Boolean for choosing whether to update weights or not.
+#' @param update_partition Boolean for choosing whether to update the partition or not.
+#' @param update_graph Boolean for choosing whether to update the graph or not.
+#' @param perform_shuffle Boolean for choosing whether to perform shuffle or not.
+#' 
+#' @return A list with all options correctly set for working with the Gibbs sampler.
 #' @export
 #'
 #' @examples
@@ -1042,10 +1049,10 @@ set_options = function(sigma_prior_0,
                        rho0,
                        weights_a0,
                        weights_d0,
-                       total_weights0,   # added
-                       total_K0,         # added
-                       total_graphs0,    # added
-                       graph,            # added
+                       total_weights0, 
+                       total_K0, 
+                       total_graphs0, 
+                       graph,   
                        alpha_target,
                        beta_mu,
                        beta_sig2,
@@ -1058,8 +1065,8 @@ set_options = function(sigma_prior_0,
                        update_partition=TRUE,
                        update_graph=TRUE,
                        perform_shuffle=TRUE
-                       ) {
-  
+) {
+    
     options = list(
         "sigma_prior_0"          = sigma_prior_0,
         "sigma_prior_parameters" = sigma_prior_parameters,
@@ -1088,6 +1095,7 @@ set_options = function(sigma_prior_0,
     return(options)
 }
 
+
 #' Estimate alpha and beta from a Beta function given mean and variance
 #' See https://stats.stackexchange.com/a/12239 for details.
 #'
@@ -1101,27 +1109,27 @@ set_options = function(sigma_prior_0,
 estimate_Beta_params <- function(mu, var) {
     if(!(var > 0 && var < mu*(1-mu)))
         stop("The variance of the Beta must be between 0 and beta_mu*(1-beta_mu)")
-
+    
     alpha <- ((1 - mu) / var - 1 / mu) * mu ^ 2
     beta <- alpha * (1 / mu - 1)
     return(list(alpha = alpha, beta = beta))
 }
 
 
-
-
-
 #' Gibbs sampler
 #'
-#' @param data an n x p matrix of data.
-#' @param niter desired number of effective iterations.
-#' @param nburn number of iterations to be burned.
-#' @param thin keep all multiples of thin.
-#' @param options all the parameters necessary to run the Gibbs sampler.
-#' @param seed seed for reproducibility.
-#' @param print print the progressbar. Default to TRUE.
+#' This function implements the Gibbs sampler algorithm for Bayesian inference.
+#' It iteratively samples from the posterior distribution of parameters using conditional distributions.
+#' 
+#' @param data An n x p matrix of data.
+#' @param niter Desired number of effective iterations.
+#' @param nburn Number of iterations to be burned.
+#' @param thin Keep all multiples of thin.
+#' @param options All the parameters necessary to run the Gibbs sampler.
+#' @param seed Seed for reproducibility.
+#' @param print Print the progress bar. Default to TRUE.
 #'
-#' @return
+#' @return A list containing sampled values of parameters and other information.
 #' @export
 #'
 #' @examples
@@ -1155,7 +1163,7 @@ Gibbs_sampler = function(data,
     # constant parameters
     alpha_add    = options$alpha_add
     alpha_target = options$alpha_target
-   
+    
     # parameter for the Wishart
     d = options$d
     
@@ -1163,7 +1171,7 @@ Gibbs_sampler = function(data,
     beta_mu   = options$beta_mu
     beta_sig2 = options$beta_sig2
     
-
+    
     # checks
     if(sum(rho) != p)
         stop("The partition rho must sum to the number of variables p")
@@ -1181,9 +1189,9 @@ Gibbs_sampler = function(data,
         stop("The probability of choosing an add move alpha_add must be between 0 and 1")
     if(!(alpha_target > 0 && alpha_target < 1))
         stop("The target acceptance rate of the Metropolis-Hastings alpha_target must be between 0 and 1")
-
+    
     t_over_p = n_total_iter / p
-  
+    
     beta_params = estimate_Beta_params(beta_mu, beta_sig2)
     
     # define structure to save sampled values
@@ -1201,7 +1209,7 @@ Gibbs_sampler = function(data,
         total_graphs = vector("list", length = niter),
         total_K = vector("list", length = niter),
         total_weights = 0
-        )
+    )
     
     # initialize iteration counter
     it_saved = 0
@@ -1216,32 +1224,32 @@ Gibbs_sampler = function(data,
     
     # start the simulation
     for(iter in 1:n_total_iter){
-      
-      if(is.null(graph)){ 
+        
+        if(is.null(graph)){ 
             # we run a single iteration of BDgraph with iter = 1 and burnin = 0
             # and g.start = "empty"
-             output = bdgraph(
-             data,
-             rho,
-             n,
-             method = "ggm",
-             algorithm = "bdmcmc",
-             iter = 1,
-             burnin = 0,
-             not.cont = NULL,
-             g.prior = 0.5,
-             df.prior = d,
-             CCG_D = NULL,
-             g.start = "empty",
-             jump = NULL,
-             save = TRUE,
-             print = 1000,
-             cores = NULL,
-             threshold = 1e-8
-             )
-             }
-      
-      else {
+            output = bdgraph(
+                data,
+                rho,
+                n,
+                method = "ggm",
+                algorithm = "bdmcmc",
+                iter = 1,
+                burnin = 0,
+                not.cont = NULL,
+                g.prior = 0.5,
+                df.prior = d,
+                CCG_D = NULL,
+                g.start = "empty",
+                jump = NULL,
+                save = TRUE,
+                print = 1000,
+                cores = NULL,
+                threshold = 1e-8
+            )
+        }
+        
+        else {
             # we run a single iteration of BDgraph with iter = 1 and burnin = 0
             # and g.start = graph
             output = bdgraph(
@@ -1263,14 +1271,14 @@ Gibbs_sampler = function(data,
                 cores = NULL,
                 threshold = 1e-8
             )
-            }
-      
+        }
+        
         # update graph
         if (options$update_graph){
-          
+            
             # extract precision matrix K
             last_K = output$last_K
-
+            
             if(niter > nburn){ # only if niter > nburn right? TODO what about burnin? Siamo 'sgor?
                 # update total_weights
                 total_weights = total_weights + output$all_weights
@@ -1280,11 +1288,11 @@ Gibbs_sampler = function(data,
             }
             
         }
-      
-     
-      # extract adjacency matrix G and update for the next iteration
-      graph = output$last_graph
-      
+        
+        
+        # extract adjacency matrix G and update for the next iteration
+        graph = output$last_graph
+        
         
         if(options$update_partition){
             list_output_update_partition = update_partition(rho,
@@ -1297,9 +1305,11 @@ Gibbs_sampler = function(data,
                                                             beta_params)
             
             rho = list_output_update_partition$rho_updated
-
+            
             # it makes sense to perform the adaptive step only if we're updating the partition
             # update the single weight at the point only if the move has been accepted
+            
+            
             if(options$update_weights && list_output_update_partition$accepted){
                 if(list_output_update_partition$choose_add){
                     weights_a = update_weight(
@@ -1323,8 +1333,8 @@ Gibbs_sampler = function(data,
                 }
             }
         }
-      
-      
+        
+        
         if(options$perform_shuffle){
             rho = shuffle_partition(rho, graph, sigma_prior, beta_params$alpha, beta_params$beta)
         }
@@ -1338,13 +1348,13 @@ Gibbs_sampler = function(data,
                                                sigma_prior_parameters$b,
                                                sigma_prior_parameters$c,
                                                sigma_prior_parameters$d) -
-                        full_conditional_sigma(sigma_prior,
-                                               theta_prior,
-                                               rho,
-                                               sigma_prior_parameters$a,
-                                               sigma_prior_parameters$b,
-                                               sigma_prior_parameters$c,
-                                               sigma_prior_parameters$d)
+                full_conditional_sigma(sigma_prior,
+                                       theta_prior,
+                                       rho,
+                                       sigma_prior_parameters$a,
+                                       sigma_prior_parameters$b,
+                                       sigma_prior_parameters$c,
+                                       sigma_prior_parameters$d)
             
             if(log(runif(1)) <= min(alpha_MH,log(1))){
                 sigma_prior = candidate
@@ -1352,7 +1362,7 @@ Gibbs_sampler = function(data,
                 sigma_prior = sigma_prior
             }
         }
-
+        
         if(options$update_theta_prior) {
             theta_prior = full_conditional_theta(
                 theta_prior_parameters$c,
@@ -1378,8 +1388,8 @@ Gibbs_sampler = function(data,
                 save_res$G[[it_saved]] = total_graphs / total_weights
             }
             else{
-              save_res$K[[it_saved]] = total_K
-              save_res$G[[it_saved]] = total_graphs
+                save_res$K[[it_saved]] = total_K
+                save_res$G[[it_saved]] = total_graphs
             }
             
             save_res$total_weights <- total_weights
@@ -1411,7 +1421,7 @@ Gibbs_sampler = function(data,
         #log_print(last_S, console = FALSE)
         #log_print("---------------------------------------------------------------------", console = FALSE)
     }
-
+    
     save_res$execution_time = Sys.time() - start_time
     
     #output = list( sample_graphs = sample_graphs, graph_weights = graph_weights, K_hat = "empty",
@@ -1423,3 +1433,279 @@ Gibbs_sampler = function(data,
     return(save_res)
 }
 
+
+
+#' Set initialization values for the Gibbs sampler
+#'
+#' This function sets the initialization values for the Gibbs sampler.
+#' 
+#' @param Beta Initial value for Beta.
+#' @param mu Initial value for mu.
+#' @param tau_eps Initial value for tau_eps.
+#' @param K Initial value for K.
+#' @param G Initial value for G.
+#' @param z Initial value for z.
+#' @param rho Initial value for rho.
+#' @param sigma Initial value for sigma.
+#' @param theta Initial value for theta.
+#' @param weights_a0 Initial value for weights_a0.
+#' @param weights_d0 Initial value for weights_d0.
+#' @param total_weights Initial value for total_weights.
+#' @param total_K Initial value for total_K.
+#' @param total_graphs Initial value for total_graphs.
+#' @param graph_start Initial value for graph_start.
+#' @param graph_density Initial value for graph_density.
+#' @param beta_sig2 Initial value for beta_sig2.
+#' @param d Initial value for d.
+#'
+#' @return A list containing the initialization values for the Gibbs sampler.
+#'
+#' @examples
+#'
+set_initialization = function(
+        Beta,
+        mu,
+        tau_eps,
+        K,
+        G,
+        z,
+        rho,
+        sigma,
+        theta,
+        weights_a0,
+        weights_d0,
+        total_weights,
+        total_K,
+        total_graphs,
+        graph_start,
+        graph_density,
+        beta_sig2,
+        d
+    ){
+    
+    initialization_values = list(
+        'Beta'            = Beta,
+        'mu'              = mu,
+        'tau_eps'         = tau_eps,
+        'K'               = K,
+        'G'               = G,
+        'z'               = z,
+        'rho'             = rho,
+        'sigma'           = sigma,
+        'theta'           = theta,
+        'weights_a'       = weights_a0,
+        'weights_d'       = weights_d0,
+        'total_weights'   = total_weights,
+        'total_K'         = total_K,
+        'total_graphs'    = total_graphs,
+        'graph_start'     = graph_start,
+        'graph_density'   = graph_density,
+        'beta_sig2'       = beta_sig2,
+        'd'               = d
+    )
+    
+    return(initialization_values)
+}
+
+
+
+#' Set update parameters for Gibbs sampler
+#'
+#' This function sets the update parameters for the Gibbs sampler.
+#' 
+#' @param tbase_base Base for tbase.
+#' @param tbase_data Data for tbase.
+#' @param Sdata Data for S.
+#' @param a_tau_eps Value for a_tau_eps.
+#' @param b_tau_eps Value for b_tau_eps.
+#' @param sigma_mu Value for sigma_mu.
+#' @param r Value for r.
+#' @param Update_Beta Boolean for updating Beta.
+#' @param Update_Mu Boolean for updating Mu.
+#' @param Update_Tau Boolean for updating Tau.
+#'
+#' @return A list containing the update parameters.
+#'
+#' @examples
+#'
+set_UpdateParamsGSL = function(
+    tbase_base,
+    tbase_data,
+    Sdata,
+    a_tau_eps,
+    b_tau_eps,
+    sigma_mu,
+    r,
+    Update_Beta = TRUE,
+    Update_Mu = TRUE,
+    Update_Tau = TRUE
+){
+    return(
+        list(
+        'tbase_base'   = tbase_base,
+        'tbase_data'   = tbase_data,
+        'Sdata'        = Sdata,
+        'a_tau_eps'    = a_tau_eps,
+        'b_tau_eps'    = b_tau_eps,
+        'sigma_mu'     = sigma_mu,
+        'r'            = r,
+        'Update_Beta'  = Update_Beta,
+        'Update_Mu'    = Update_Mu,
+        'Update_Tau'   = Update_Tau
+        )
+    )
+}
+
+
+#' Update the Gibbs sampler
+#'
+#' This function updates the Gibbs sampler for a specified number of iterations.
+#' 
+#' @param set_UpdateParamsGSL_list List of update parameters.
+#' @param niter Number of iterations.
+#' @param initialization_values Initial values for the Gibbs sampler.
+#' @param alpha_target Target acceptance rate for Metropolis-Hastings.
+#' @param alpha_add Probability of choosing an add move.
+#' @param adaptation_step Step size for adaptation.
+#' @param seed Seed for reproducibility.
+#' @param update_sigma_prior Boolean for updating sigma prior.
+#' @param update_theta_prior Boolean for updating theta prior.
+#' @param update_weights Boolean for updating weights.
+#' @param update_partition Boolean for updating partition.
+#' @param update_graph Boolean for updating graph.
+#' @param perform_shuffle Boolean for shuffling.
+#'
+#' @return A list containing the updated results of the Gibbs sampler.
+#'
+#' @examples
+#'
+Gibb_sampler_update = function(
+        set_UpdateParamsGSL_list,
+        niter, 
+        initialization_values, 
+        alpha_target,
+        alpha_add,
+        adaptation_step,
+        seed,
+        update_sigma_prior,
+        update_theta_prior, 
+        update_weights,
+        update_partition,
+        update_graph,
+        perform_shuffle
+){
+    
+    # Create a list for chains to save the values of each iteration
+    chains <- list(
+        Beta = vector("list", length = niter),
+        mu = vector("list", length = niter),
+        tau_eps = vector("list", length = niter),
+        K = vector("list", length = niter),
+        G = vector("list", length = niter),
+        z = vector("list", length = niter),
+        rho = vector("list", length = niter),
+        time = vector("list", length = niter)
+    ) 
+    
+    # Initialization of the chains
+    chains$Beta[[1]] <- initialization_values$Beta        
+    chains$mu[[1]] <- initialization_values$mu
+    chains$tau_eps[[1]] <- initialization_values$tau_eps 
+    chains$K[[1]] <- initialization_values$K
+    chains$G[[1]] <- initialization_values$G
+    chains$z[[1]] <- initialization_values$z 
+    chains$rho[[1]] <- initialization_values$rho 
+    chains$time <- 0
+    
+    for(s in 2:niter) {
+        
+        fit = UpdateParamsGSL(
+            chains$Beta[[s-1]],
+            chains$mu[[s-1]],
+            chains$tau_eps[[s-1]], 
+            chains$K[[s-1]],
+            set_UpdateParamsGSL_list$tbase_base,
+            set_UpdateParamsGSL_list$tbase_data,
+            set_UpdateParamsGSL_list$Sdata,
+            set_UpdateParamsGSL_list$a_tau_eps, 
+            set_UpdateParamsGSL_list$b_tau_eps, 
+            set_UpdateParamsGSL_list$sigma_mu,
+            set_UpdateParamsGSL_list$r,
+            set_UpdateParamsGSL_list$Update_Beta,
+            set_UpdateParamsGSL_list$Update_Mu,
+            set_UpdateParamsGSL_list$Update_Tau
+        )
+        
+        # Save Beta
+        chains$Beta[[s]] <- fit$Beta
+        
+        # Save mu
+        chains$mu[[s]] <- fit$mu
+        
+        # Save tau
+        chains$tau_eps[[s]] <- fit$tau_eps
+        
+        # Set options for a single iteration of the Gibbs_sampler
+        options = set_options(
+            sigma_prior_0 = initialization_values$sigma,
+            sigma_prior_parameters = list("a"=1,"b"=1,"c"=1,"d"=1),
+            theta_prior_0 = initialization_values$theta,
+            theta_prior_parameters=list("c"=1,"d"=1),
+            rho0=chains$rho[[s-1]],    
+            weights_a0 = initialization_values$weights_a,
+            weights_d0 = initialization_values$weights_d,
+            total_weights0 = initialization_values$total_weights,
+            total_K0 = initialization_values$total_K,
+            total_graphs0 = initialization_values$total_graphs,
+            graph = initialization_values$graph_start,
+            alpha_target = alpha_target,
+            beta_mu = initialization_values$graph_density, 
+            beta_sig2 = initialization_values$beta_sig2, 
+            d = initialization_values$d, 
+            alpha_add = alpha_add, 
+            adaptation_step = adaptation_step,
+            update_sigma_prior = update_sigma_prior,
+            update_theta_prior = update_theta_prior,
+            update_weights = update_weights,
+            update_partition = update_partition,
+            update_graph = update_graph,
+            perform_shuffle = perform_shuffle
+        )
+        
+        # Run an iteration of the Gibbs Sampler
+        res <- Gibbs_sampler(
+            data = t(fit$Beta - fit$mu),
+            niter = 1, nburn = 0, thin = 1,
+            options = options,
+            seed = seed,
+            print = FALSE
+        )
+        
+        z = do.call(rbind, lapply(res$rho, rho_to_z))
+        
+        # Save rho
+        chains$rho[[s]] <- res$rho[[1]]
+        
+        # Save K
+        chains$K[[s]] <- res$K [[1]]
+        
+        # Save G
+        chains$G[[s]] <- res$G [[1]]    
+        
+        # Save z
+        chains$z[[s]] <- z      
+        
+        # Save times for each K
+        chains$time[[s]] <- res$execution_time
+        
+        # Update quantities for the next iteration
+        weights_a <- res$weights_a[[1]]
+        weights_d <- res$weights_d[[1]]
+        total_weights <- res$total_weights
+        total_K <- res$total_K[[1]]
+        total_graphs <- res$total_graphs[[1]]
+        graph_start = res$bdgraph_start
+    }
+    
+    return(res)
+}
